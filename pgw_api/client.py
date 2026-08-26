@@ -1,0 +1,230 @@
+"""API client for Philadelphia Gas Works (PGW) portal."""
+
+from __future__ import annotations
+
+import json
+import re
+from datetime import date
+
+import aiohttp
+
+from .exceptions import PGWAuthError, PGWConnectionError
+from .models import GasUsage
+
+BASE_URL = "https://myaccount.pgworks.com/portal"
+LOGIN_URL = f"{BASE_URL}/"
+VALIDATE_LOGIN_URL = f"{BASE_URL}/Default.aspx/validateLogin"
+DASHBOARD_URL = f"{BASE_URL}/Dashboard.aspx"
+USAGE_URL = f"{BASE_URL}/usages.aspx"
+LOAD_GAS_URL = f"{BASE_URL}/Usages.aspx/LoadGasUsage"
+
+_HEADERS = {
+    "Content-Type": "application/json; charset=utf-8",
+    "X-Requested-With": "XMLHttpRequest",
+    "Origin": "https://myaccount.pgworks.com",
+}
+
+
+class PGWApiClient:
+    """Client for interacting with the PGW portal."""
+
+    def __init__(self, username: str, password: str) -> None:
+        self._username = username
+        self._password = password
+
+    async def async_get_usage(
+        self, session: aiohttp.ClientSession
+    ) -> list[GasUsage]:
+        """Authenticate and fetch gas usage data from PGW."""
+        await self._establish_session(session)
+        await self._authenticate(session)
+        csrf_token = await self._get_csrf_token(session)
+        return await self._load_gas_usage(session, csrf_token)
+
+    async def async_validate_credentials(
+        self, session: aiohttp.ClientSession
+    ) -> bool:
+        """Validate credentials without fetching usage data."""
+        await self._establish_session(session)
+        await self._authenticate(session)
+        return True
+
+    async def _establish_session(self, session: aiohttp.ClientSession) -> None:
+        """GET the login page to establish ASP.NET session cookies."""
+        try:
+            async with session.get(LOGIN_URL, allow_redirects=True) as resp:
+                if resp.status != 200:
+                    raise PGWConnectionError(
+                        f"Login page returned status {resp.status}"
+                    )
+                await resp.text()
+        except aiohttp.ClientError as err:
+            raise PGWConnectionError(f"Failed to connect to PGW: {err}") from err
+
+    async def _authenticate(self, session: aiohttp.ClientSession) -> None:
+        """Authenticate via the AJAX login endpoint."""
+        payload = {
+            "username": self._username,
+            "password": self._password,
+            "rememberme": False,
+        }
+        headers = {**_HEADERS, "Referer": LOGIN_URL}
+
+        try:
+            async with session.post(
+                VALIDATE_LOGIN_URL, json=payload, headers=headers
+            ) as resp:
+                if resp.status != 200:
+                    raise PGWAuthError(
+                        f"Login endpoint returned status {resp.status}"
+                    )
+                body = await resp.text()
+        except aiohttp.ClientError as err:
+            raise PGWConnectionError(
+                f"Failed during authentication: {err}"
+            ) from err
+
+        try:
+            data = json.loads(body)
+            inner = json.loads(data["d"])
+        except (json.JSONDecodeError, KeyError) as err:
+            raise PGWConnectionError(
+                "Unexpected response from login endpoint"
+            ) from err
+
+        if isinstance(inner, dict) and "dtException" in inner:
+            msg = inner["dtException"][0].get("MessageInformation", "Unknown error")
+            raise PGWAuthError(msg)
+
+        if not isinstance(inner, list) or not inner:
+            raise PGWAuthError("Authentication failed - unexpected response")
+
+        first = inner[0]
+        if isinstance(first, dict) and first.get("STATUS") == 0:
+            raise PGWAuthError(
+                first.get("Message", "Invalid username or password")
+            )
+
+    async def _get_csrf_token(self, session: aiohttp.ClientSession) -> str:
+        """Navigate to the usage page and extract the CSRF token."""
+        try:
+            async with session.get(DASHBOARD_URL, allow_redirects=True) as resp:
+                await resp.text()
+
+            async with session.get(
+                USAGE_URL, params={"type": "GU"}, allow_redirects=True
+            ) as resp:
+                if resp.status != 200:
+                    raise PGWConnectionError(
+                        f"Usage page returned status {resp.status}"
+                    )
+                html = await resp.text()
+        except aiohttp.ClientError as err:
+            raise PGWConnectionError(
+                f"Failed to fetch usage page: {err}"
+            ) from err
+
+        match = re.search(r'id="hdnCSRFToken"[^>]*value="([^"]+)"', html)
+        if not match:
+            raise PGWConnectionError("Could not extract CSRF token from usage page")
+
+        return match.group(1)
+
+    async def _load_gas_usage(
+        self, session: aiohttp.ClientSession, csrf_token: str
+    ) -> list[GasUsage]:
+        """Call the LoadGasUsage WebMethod to get monthly usage data."""
+        payload = {
+            "Type": "C",
+            "Mode": "M",
+            "strDate": "",
+            "hourlyType": "",
+            "seasonId": "",
+            "weatherOverlay": "0",
+            "usageyear": "",
+            "MeterNumber": "",
+            "DateFromDaily": "",
+            "DateToDaily": "",
+            "HistID": "0",
+            "requiredDataType": 0,
+        }
+        headers = {
+            **_HEADERS,
+            "Referer": f"{USAGE_URL}?type=GU",
+            "CSRFToken": csrf_token,
+        }
+
+        try:
+            async with session.post(
+                LOAD_GAS_URL, json=payload, headers=headers
+            ) as resp:
+                if resp.status != 200:
+                    raise PGWConnectionError(
+                        f"LoadGasUsage returned status {resp.status}"
+                    )
+                body = await resp.text()
+        except aiohttp.ClientError as err:
+            raise PGWConnectionError(
+                f"Failed to fetch gas usage: {err}"
+            ) from err
+
+        try:
+            data = json.loads(body)
+            inner = json.loads(data["d"])
+        except (json.JSONDecodeError, KeyError) as err:
+            raise PGWConnectionError(
+                "Unexpected response from LoadGasUsage"
+            ) from err
+
+        if isinstance(inner, dict) and "dtException" in inner:
+            msg = inner["dtException"][0].get("MessageInformation", "Unknown error")
+            if "CSRF" in msg:
+                raise PGWAuthError("CSRF token invalid - session may have expired")
+            raise PGWConnectionError(msg)
+
+        usage_entries = inner.get("objUsageGenerationResultSetTwo", [])
+        if not usage_entries:
+            return []
+
+        results: list[GasUsage] = []
+        for entry in usage_entries:
+            month_num = entry.get("Month")
+            year = entry.get("Year")
+            ccf = entry.get("UsageValue")
+
+            if not all((month_num, year, ccf is not None)):
+                continue
+
+            month_date = date(year, month_num, 1)
+
+            period_start = _parse_date(entry.get("FromDate"))
+            period_end = _parse_date(entry.get("ToDate"))
+
+            results.append(
+                GasUsage(
+                    month=month_date,
+                    ccf=float(ccf),
+                    period_start=period_start,
+                    period_end=period_end,
+                )
+            )
+
+        return sorted(results, key=lambda u: u.month, reverse=True)
+
+
+def _parse_date(date_str: str | None) -> date | None:
+    """Parse a date string in MM/DD/YY format."""
+    if not date_str:
+        return None
+    try:
+        parts = date_str.split("/")
+        if len(parts) == 3:
+            month = int(parts[0])
+            day = int(parts[1])
+            year = int(parts[2])
+            if year < 100:
+                year += 2000
+            return date(year, month, day)
+    except (ValueError, IndexError):
+        pass
+    return None

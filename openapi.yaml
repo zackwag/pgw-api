@@ -1,0 +1,395 @@
+openapi: 3.1.0
+info:
+  title: Philadelphia Gas Works (PGW) Portal API
+  version: "1.0"
+  description: |
+    Unofficial OpenAPI specification for the Philadelphia Gas Works customer portal at
+    `myaccount.pgworks.com`. These endpoints were reverse-engineered from the portal's
+    ASP.NET WebForms frontend.
+
+    ## Authentication Flow
+
+    1. `GET /portal/` — Establish ASP.NET session cookies (`ASP.NET_SessionId`, `.ASPXAUTH`)
+    2. `POST /portal/Default.aspx/validateLogin` — Authenticate via AJAX
+    3. `GET /portal/Dashboard.aspx` — Navigate to dashboard (required before accessing other pages)
+
+    After authentication, session cookies grant access to data endpoints. The session
+    expires after ~20 minutes of inactivity.
+
+    ## CSRF Token
+
+    The `LoadGasUsage` WebMethod requires a CSRF token extracted from the usage page HTML:
+
+    ```html
+    <input type="hidden" id="hdnCSRFToken" value="TOKEN_VALUE" />
+    ```
+
+    Pass it as a `CSRFToken` header on subsequent POST requests.
+
+    ## Billing Data
+
+    Billing information is embedded in hidden form fields on the BillDashboard page
+    rather than exposed via a JSON API. Parse the HTML to extract values.
+  contact:
+    name: zackwag
+    url: https://github.com/zackwag/pgw-api
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://myaccount.pgworks.com/portal
+    description: PGW Customer Portal
+
+paths:
+  /:
+    get:
+      operationId: getLoginPage
+      summary: Establish session
+      description: |
+        Loads the login page and establishes ASP.NET session cookies required for
+        all subsequent requests.
+      responses:
+        "200":
+          description: Login page HTML with session cookies set
+          headers:
+            Set-Cookie:
+              description: ASP.NET_SessionId cookie
+              schema:
+                type: string
+
+  /Default.aspx/validateLogin:
+    post:
+      operationId: validateLogin
+      summary: Authenticate user
+      description: |
+        AJAX login endpoint. The portal uses this instead of a traditional form POST.
+        On success, the response sets authentication cookies and returns account data.
+        On failure, returns an error object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            example:
+              username: "user@example.com"
+              password: "password123"
+              rememberme: false
+      parameters:
+        - $ref: "#/components/parameters/XRequestedWith"
+        - $ref: "#/components/parameters/Origin"
+      responses:
+        "200":
+          description: |
+            Login response wrapped in ASP.NET WebMethod format. The `d` field contains
+            a JSON string that must be parsed separately.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+              examples:
+                success:
+                  summary: Successful login
+                  value:
+                    d: '[{"AccountNumber":"1234567890","FirstName":"John","LastName":"Doe","STATUS":1}]'
+                invalid_credentials:
+                  summary: Invalid credentials
+                  value:
+                    d: '[{"STATUS":0,"Message":"Invalid username or password"}]'
+                exception:
+                  summary: Server error
+                  value:
+                    d: '{"dtException":[{"MessageInformation":"Account locked"}]}'
+
+  /Dashboard.aspx:
+    get:
+      operationId: getDashboard
+      summary: Load account dashboard
+      description: |
+        Must be visited after authentication and before navigating to other pages.
+        The portal uses server-side navigation state that requires this step.
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Dashboard HTML page
+        "302":
+          description: Redirect to login (session expired)
+
+  /BillDashboard.aspx:
+    get:
+      operationId: getBillDashboard
+      summary: Get billing information
+      description: |
+        Returns the billing dashboard HTML page containing billing data in hidden
+        form fields. Must navigate to Dashboard.aspx first.
+
+        ## Hidden Fields
+
+        | Field ID | Description | Format |
+        |----------|-------------|--------|
+        | `hdnTotalBillOFCurrentMonth` | Current month bill | `$123.45` |
+        | `hdnGasUsageOFCurrentMonth` | Current month usage | CCF (float) |
+        | `hdnnumOfDaysCurrentMonth` | Days in current billing period | integer |
+        | `hdnTotalBillOFPreviousMonth` | Previous month bill | `$123.45` |
+        | `hdnGasUsageOFPreviousMonth` | Previous month usage | CCF (float) |
+        | `hdnnumOfDaysPreviousMonth` | Days in previous billing period | integer |
+        | `hdnTotalBillOFPreviousYearPreviousMonth` | Same month last year bill | `$123.45` |
+        | `hdnGasUsageOFPreviousYearPreviousMonth` | Same month last year usage | CCF (float) |
+        | `hdnPrevAmount` | Balance due | `$123.45` |
+        | `hdnbillComparisionOFCurrentMonth` | Billing period dates (JSON) | HTML-encoded JSON |
+
+        ## Period Dates Format
+
+        The `hdnbillComparisionOFCurrentMonth` field contains HTML-encoded JSON:
+
+        ```json
+        [{"Periodfrom": "2024-01-15T00:00:00", "PeriodTo": "2024-02-14T00:00:00", ...}]
+        ```
+
+        Decode `&quot;` → `"` before parsing.
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Bill dashboard HTML with billing data in hidden fields
+          content:
+            text/html:
+              schema:
+                type: string
+        "302":
+          description: Redirect to login (session expired)
+
+  /usages.aspx:
+    get:
+      operationId: getUsagePage
+      summary: Load usage page and extract CSRF token
+      description: |
+        Loads the gas usage page. The HTML contains a hidden CSRF token required
+        for the `LoadGasUsage` endpoint. Must navigate to Dashboard.aspx first.
+
+        Extract the token from:
+        ```html
+        <input type="hidden" id="hdnCSRFToken" value="..." />
+        ```
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [GU]
+          description: Page type — `GU` for Gas Usage
+      responses:
+        "200":
+          description: Usage page HTML containing CSRF token
+          content:
+            text/html:
+              schema:
+                type: string
+        "302":
+          description: Redirect to login (session expired)
+
+  /Usages.aspx/LoadGasUsage:
+    post:
+      operationId: loadGasUsage
+      summary: Get monthly gas usage data
+      description: |
+        ASP.NET WebMethod that returns monthly gas usage history as JSON.
+        Requires a valid CSRF token from the usage page.
+
+        Returns up to ~48 months of historical usage data in CCF (centum cubic feet).
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestedWith"
+        - $ref: "#/components/parameters/Origin"
+        - name: CSRFToken
+          in: header
+          required: true
+          schema:
+            type: string
+          description: CSRF token extracted from `hdnCSRFToken` on the usage page
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoadGasUsageRequest"
+            example:
+              Type: "C"
+              Mode: "M"
+              strDate: ""
+              hourlyType: ""
+              seasonId: ""
+              weatherOverlay: "0"
+              usageyear: ""
+              MeterNumber: ""
+              DateFromDaily: ""
+              DateToDaily: ""
+              HistID: "0"
+              requiredDataType: 0
+      responses:
+        "200":
+          description: |
+            Gas usage data wrapped in ASP.NET WebMethod format. The `d` field contains
+            a JSON string with usage entries in `objUsageGenerationResultSetTwo`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoadGasUsageResponse"
+              examples:
+                success:
+                  summary: Monthly usage data
+                  value:
+                    d: '{"objUsageGenerationResultSetTwo":[{"Month":1,"Year":2024,"UsageValue":85.0,"FromDate":"12/15/23","ToDate":"01/16/24"}]}'
+                csrf_error:
+                  summary: Invalid CSRF token
+                  value:
+                    d: '{"dtException":[{"MessageInformation":"Invalid CSRF Token"}]}'
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: ASP.NET_SessionId
+      description: Session cookie established during login page load and authenticated via validateLogin
+
+  parameters:
+    XRequestedWith:
+      name: X-Requested-With
+      in: header
+      required: true
+      schema:
+        type: string
+        const: XMLHttpRequest
+      description: Required for ASP.NET to recognize AJAX requests
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      schema:
+        type: string
+        const: https://myaccount.pgworks.com
+      description: Origin header for CORS validation
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password, rememberme]
+      properties:
+        username:
+          type: string
+          description: PGW account email address
+        password:
+          type: string
+          format: password
+          description: Account password
+        rememberme:
+          type: boolean
+          description: Whether to persist the session (always use `false` for API access)
+
+    LoginResponse:
+      type: object
+      properties:
+        d:
+          type: string
+          description: |
+            JSON-encoded string containing either:
+            - Array of account objects on success (`[{"AccountNumber": "...", "STATUS": 1}]`)
+            - Object with `dtException` array on error
+            - Array with `STATUS: 0` and error message on invalid credentials
+
+    LoadGasUsageRequest:
+      type: object
+      required: [Type, Mode, strDate, hourlyType, seasonId, weatherOverlay, usageyear, MeterNumber, DateFromDaily, DateToDaily, HistID, requiredDataType]
+      properties:
+        Type:
+          type: string
+          enum: ["C"]
+          description: Data type — `C` for consumption
+        Mode:
+          type: string
+          enum: ["M", "D"]
+          description: Aggregation mode — `M` for monthly, `D` for daily
+        strDate:
+          type: string
+          description: Date filter (empty for all data)
+        hourlyType:
+          type: string
+          description: Hourly breakdown type (empty for monthly)
+        seasonId:
+          type: string
+          description: Season filter (empty for all)
+        weatherOverlay:
+          type: string
+          enum: ["0", "1"]
+          description: Include weather overlay data
+        usageyear:
+          type: string
+          description: Year filter (empty for all years)
+        MeterNumber:
+          type: string
+          description: Specific meter number (empty for default)
+        DateFromDaily:
+          type: string
+          description: Daily range start (empty for monthly mode)
+        DateToDaily:
+          type: string
+          description: Daily range end (empty for monthly mode)
+        HistID:
+          type: string
+          description: History ID (use `"0"`)
+        requiredDataType:
+          type: integer
+          enum: [0]
+          description: Data type selector (use `0`)
+
+    LoadGasUsageResponse:
+      type: object
+      properties:
+        d:
+          type: string
+          description: |
+            JSON-encoded string containing an object with `objUsageGenerationResultSetTwo`
+            array, or `dtException` on error.
+
+    GasUsageEntry:
+      type: object
+      description: Single month of gas usage data (found inside `objUsageGenerationResultSetTwo`)
+      properties:
+        Month:
+          type: integer
+          minimum: 1
+          maximum: 12
+          description: Month number (1-12)
+        Year:
+          type: integer
+          description: Four-digit year
+        UsageValue:
+          type: number
+          description: Gas consumption in CCF (centum cubic feet)
+        FromDate:
+          type: string
+          description: Billing period start in `MM/DD/YY` format
+          example: "12/15/23"
+        ToDate:
+          type: string
+          description: Billing period end in `MM/DD/YY` format
+          example: "01/16/24"
+
+    ErrorResponse:
+      type: object
+      properties:
+        dtException:
+          type: array
+          items:
+            type: object
+            properties:
+              MessageInformation:
+                type: string
+                description: Human-readable error message

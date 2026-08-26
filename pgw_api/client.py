@@ -9,12 +9,13 @@ from datetime import date
 import aiohttp
 
 from .exceptions import PGWAuthError, PGWConnectionError
-from .models import GasUsage
+from .models import BillingSummary, GasUsage
 
 BASE_URL = "https://myaccount.pgworks.com/portal"
 LOGIN_URL = f"{BASE_URL}/"
 VALIDATE_LOGIN_URL = f"{BASE_URL}/Default.aspx/validateLogin"
 DASHBOARD_URL = f"{BASE_URL}/Dashboard.aspx"
+BILL_DASHBOARD_URL = f"{BASE_URL}/BillDashboard.aspx"
 USAGE_URL = f"{BASE_URL}/usages.aspx"
 LOAD_GAS_URL = f"{BASE_URL}/Usages.aspx/LoadGasUsage"
 
@@ -40,6 +41,25 @@ class PGWApiClient:
         await self._authenticate(session)
         csrf_token = await self._get_csrf_token(session)
         return await self._load_gas_usage(session, csrf_token)
+
+    async def async_get_billing(
+        self, session: aiohttp.ClientSession
+    ) -> BillingSummary:
+        """Authenticate and fetch billing summary from PGW."""
+        await self._establish_session(session)
+        await self._authenticate(session)
+        return await self._load_billing(session)
+
+    async def async_get_all(
+        self, session: aiohttp.ClientSession
+    ) -> tuple[list[GasUsage], BillingSummary]:
+        """Authenticate and fetch both usage and billing data in one session."""
+        await self._establish_session(session)
+        await self._authenticate(session)
+        billing = await self._load_billing(session)
+        csrf_token = await self._get_csrf_token(session)
+        usage = await self._load_gas_usage(session, csrf_token)
+        return usage, billing
 
     async def async_validate_credentials(
         self, session: aiohttp.ClientSession
@@ -129,6 +149,79 @@ class PGWApiClient:
             raise PGWConnectionError("Could not extract CSRF token from usage page")
 
         return match.group(1)
+
+    async def _load_billing(
+        self, session: aiohttp.ClientSession
+    ) -> BillingSummary:
+        """Fetch billing summary from the BillDashboard page."""
+        try:
+            async with session.get(DASHBOARD_URL, allow_redirects=True) as resp:
+                await resp.text()
+
+            async with session.get(
+                BILL_DASHBOARD_URL, allow_redirects=True
+            ) as resp:
+                if resp.status != 200:
+                    raise PGWConnectionError(
+                        f"BillDashboard returned status {resp.status}"
+                    )
+                html = await resp.text()
+        except aiohttp.ClientError as err:
+            raise PGWConnectionError(
+                f"Failed to fetch billing data: {err}"
+            ) from err
+
+        def field(name: str, default: str = "0") -> str:
+            match = re.search(
+                rf'id="{name}"[^>]*value="([^"]*)"', html
+            )
+            return match.group(1) if match else default
+
+        current_bill = _parse_dollar(field("hdnTotalBillOFCurrentMonth"))
+        current_usage = _parse_float(field("hdnGasUsageOFCurrentMonth"))
+        current_days = _parse_int(field("hdnnumOfDaysCurrentMonth"))
+        previous_bill = _parse_dollar(field("hdnTotalBillOFPreviousMonth"))
+        previous_usage = _parse_float(field("hdnGasUsageOFPreviousMonth"))
+        previous_days = _parse_int(field("hdnnumOfDaysPreviousMonth"))
+        prev_year_bill = _parse_dollar(
+            field("hdnTotalBillOFPreviousYearPreviousMonth")
+        )
+        prev_year_usage = _parse_float(
+            field("hdnGasUsageOFPreviousYearPreviousMonth")
+        )
+        balance = _parse_dollar(field("hdnPrevAmount"))
+
+        # Parse period from billing comparison JSON
+        period_start = None
+        period_end = None
+        comparison = field("hdnbillComparisionOFCurrentMonth", "")
+        if comparison:
+            comparison = comparison.replace("&quot;", '"')
+            try:
+                entries = json.loads(comparison)
+                if entries:
+                    ps = entries[0].get("Periodfrom")
+                    pe = entries[0].get("PeriodTo")
+                    if ps:
+                        period_start = date.fromisoformat(ps.split("T")[0])
+                    if pe:
+                        period_end = date.fromisoformat(pe.split("T")[0])
+            except (json.JSONDecodeError, ValueError, IndexError):
+                pass
+
+        return BillingSummary(
+            current_bill=current_bill,
+            current_usage_ccf=current_usage,
+            current_period_days=current_days,
+            previous_bill=previous_bill,
+            previous_usage_ccf=previous_usage,
+            previous_period_days=previous_days,
+            previous_year_bill=prev_year_bill,
+            previous_year_usage_ccf=prev_year_usage,
+            balance_due=balance,
+            period_start=period_start,
+            period_end=period_end,
+        )
 
     async def _load_gas_usage(
         self, session: aiohttp.ClientSession, csrf_token: str
@@ -228,3 +321,28 @@ def _parse_date(date_str: str | None) -> date | None:
     except (ValueError, IndexError):
         pass
     return None
+
+
+def _parse_dollar(value: str) -> float:
+    """Parse a dollar amount string like '$37.52' or '37.52'."""
+    cleaned = value.replace("$", "").replace(",", "").strip()
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
+
+
+def _parse_float(value: str) -> float:
+    """Parse a float string."""
+    try:
+        return float(value)
+    except ValueError:
+        return 0.0
+
+
+def _parse_int(value: str) -> int:
+    """Parse an int string."""
+    try:
+        return int(value)
+    except ValueError:
+        return 0

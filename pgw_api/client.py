@@ -9,7 +9,7 @@ from datetime import date
 import aiohttp
 
 from .exceptions import PGWAuthError, PGWConnectionError
-from .models import BillingSummary, GasUsage
+from .models import BillingSummary, DailyGasUsage, GasUsage, HourlyGasUsage
 
 BASE_URL = "https://myaccount.pgworks.com/portal"
 LOGIN_URL = f"{BASE_URL}/"
@@ -49,6 +49,29 @@ class PGWApiClient:
         await self._establish_session(session)
         await self._authenticate(session)
         return await self._load_billing(session)
+
+    async def async_get_daily_usage(
+        self,
+        session: aiohttp.ClientSession,
+        start: date,
+        end: date,
+    ) -> list[DailyGasUsage]:
+        """Authenticate and fetch daily gas usage for a date range."""
+        await self._establish_session(session)
+        await self._authenticate(session)
+        csrf_token = await self._get_csrf_token(session)
+        return await self._load_daily_gas_usage(session, csrf_token, start, end)
+
+    async def async_get_hourly_usage(
+        self,
+        session: aiohttp.ClientSession,
+        usage_date: date,
+    ) -> list[HourlyGasUsage]:
+        """Authenticate and fetch hourly gas usage for a single day."""
+        await self._establish_session(session)
+        await self._authenticate(session)
+        csrf_token = await self._get_csrf_token(session)
+        return await self._load_hourly_gas_usage(session, csrf_token, usage_date)
 
     async def async_get_all(
         self, session: aiohttp.ClientSession
@@ -303,6 +326,169 @@ class PGWApiClient:
             )
 
         return sorted(results, key=lambda u: u.month, reverse=True)
+
+    async def _load_daily_gas_usage(
+        self,
+        session: aiohttp.ClientSession,
+        csrf_token: str,
+        start: date,
+        end: date,
+    ) -> list[DailyGasUsage]:
+        """Call LoadGasUsage in daily mode for a date range."""
+        payload = {
+            "Type": "C",
+            "Mode": "D",
+            "strDate": "",
+            "hourlyType": "",
+            "seasonId": "",
+            "weatherOverlay": "0",
+            "usageyear": "",
+            "MeterNumber": "",
+            "DateFromDaily": start.strftime("%m/%d/%y"),
+            "DateToDaily": end.strftime("%m/%d/%y"),
+            "HistID": "0",
+            "requiredDataType": 0,
+        }
+        headers = {
+            **_HEADERS,
+            "Referer": f"{USAGE_URL}?type=GU",
+            "CSRFToken": csrf_token,
+        }
+
+        try:
+            async with session.post(
+                LOAD_GAS_URL, json=payload, headers=headers
+            ) as resp:
+                if resp.status != 200:
+                    raise PGWConnectionError(
+                        f"LoadGasUsage (daily) returned status {resp.status}"
+                    )
+                body = await resp.text()
+        except aiohttp.ClientError as err:
+            raise PGWConnectionError(
+                f"Failed to fetch daily gas usage: {err}"
+            ) from err
+
+        try:
+            data = json.loads(body)
+            inner = json.loads(data["d"])
+        except (json.JSONDecodeError, KeyError) as err:
+            raise PGWConnectionError(
+                "Unexpected response from LoadGasUsage (daily)"
+            ) from err
+
+        if isinstance(inner, dict) and "dtException" in inner:
+            msg = inner["dtException"][0].get("MessageInformation", "Unknown error")
+            if "CSRF" in msg:
+                raise PGWAuthError("CSRF token invalid - session may have expired")
+            raise PGWConnectionError(msg)
+
+        usage_entries = inner.get("objUsageGenerationResultSetTwo", [])
+        if not usage_entries:
+            return []
+
+        results: list[DailyGasUsage] = []
+        for entry in usage_entries:
+            entry_date = _parse_date(entry.get("FromDate"))
+            ccf = entry.get("UsageValue")
+
+            if entry_date is None or ccf is None:
+                continue
+
+            results.append(DailyGasUsage(date=entry_date, ccf=float(ccf)))
+
+        return sorted(results, key=lambda u: u.date, reverse=True)
+
+    async def _load_hourly_gas_usage(
+        self,
+        session: aiohttp.ClientSession,
+        csrf_token: str,
+        usage_date: date,
+    ) -> list[HourlyGasUsage]:
+        """Call LoadGasUsage in daily mode with hourlyType to get hourly data."""
+        from datetime import datetime
+
+        payload = {
+            "Type": "C",
+            "Mode": "D",
+            "strDate": usage_date.strftime("%m/%d/%y"),
+            "hourlyType": "H",
+            "seasonId": "",
+            "weatherOverlay": "0",
+            "usageyear": "",
+            "MeterNumber": "",
+            "DateFromDaily": "",
+            "DateToDaily": "",
+            "HistID": "0",
+            "requiredDataType": 0,
+        }
+        headers = {
+            **_HEADERS,
+            "Referer": f"{USAGE_URL}?type=GU",
+            "CSRFToken": csrf_token,
+        }
+
+        try:
+            async with session.post(
+                LOAD_GAS_URL, json=payload, headers=headers
+            ) as resp:
+                if resp.status != 200:
+                    raise PGWConnectionError(
+                        f"LoadGasUsage (hourly) returned status {resp.status}"
+                    )
+                body = await resp.text()
+        except aiohttp.ClientError as err:
+            raise PGWConnectionError(
+                f"Failed to fetch hourly gas usage: {err}"
+            ) from err
+
+        try:
+            data = json.loads(body)
+            inner = json.loads(data["d"])
+        except (json.JSONDecodeError, KeyError) as err:
+            raise PGWConnectionError(
+                "Unexpected response from LoadGasUsage (hourly)"
+            ) from err
+
+        if isinstance(inner, dict) and "dtException" in inner:
+            msg = inner["dtException"][0].get("MessageInformation", "Unknown error")
+            if "CSRF" in msg:
+                raise PGWAuthError("CSRF token invalid - session may have expired")
+            raise PGWConnectionError(msg)
+
+        usage_entries = inner.get("objUsageGenerationResultSetTwo", [])
+        if not usage_entries:
+            return []
+
+        results: list[HourlyGasUsage] = []
+        for entry in usage_entries:
+            ts = _parse_datetime(entry.get("FromDate"))
+            ccf = entry.get("UsageValue")
+
+            if ts is None or ccf is None:
+                continue
+
+            results.append(HourlyGasUsage(timestamp=ts, ccf=float(ccf)))
+
+        return sorted(results, key=lambda u: u.timestamp, reverse=True)
+
+
+def _parse_datetime(dt_str: str | None) -> datetime | None:
+    """Parse a datetime string from the portal (various formats)."""
+    if not dt_str:
+        return None
+    from datetime import datetime
+
+    for fmt in ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %H:%M:%S", "%m/%d/%y %I:%M:%S %p", "%m/%d/%y"):
+        try:
+            return datetime.strptime(dt_str, fmt)
+        except ValueError:
+            continue
+
+    parsed_date = _parse_date(dt_str)
+    if parsed_date:
+        return datetime(parsed_date.year, parsed_date.month, parsed_date.day)
+    return None
 
 
 def _parse_date(date_str: str | None) -> date | None:

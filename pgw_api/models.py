@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 
 CCF_TO_CF = 100.0
@@ -17,6 +17,32 @@ class GasUsage:
     ccf: float
     period_start: date | None = None
     period_end: date | None = None
+
+    @property
+    def cf(self) -> float:
+        """Usage in cubic feet."""
+        return self.ccf * CCF_TO_CF
+
+
+@dataclass
+class DailyGasUsage:
+    """A single day of gas usage data."""
+
+    date: date
+    ccf: float
+
+    @property
+    def cf(self) -> float:
+        """Usage in cubic feet."""
+        return self.ccf * CCF_TO_CF
+
+
+@dataclass
+class HourlyGasUsage:
+    """A single hour (or 15-min interval) of gas usage data."""
+
+    timestamp: datetime
+    ccf: float
 
     @property
     def cf(self) -> float:

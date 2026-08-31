@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pgw-api"
-version = "1.1.0"
+version = "1.2.0"
 description = "Python API client for Philadelphia Gas Works (PGW)"
 readme = "README.md"
 license = {text = "MIT"}
@@ -19,6 +19,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/zackwag/pgw-api"
 Issues = "https://github.com/zackwag/pgw-api/issues"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [tool.setuptools.packages.find]
 include = ["pgw_api*"]

@@ -196,12 +196,19 @@ paths:
   /Usages.aspx/LoadGasUsage:
     post:
       operationId: loadGasUsage
-      summary: Get monthly gas usage data
+      summary: Get gas usage data (monthly, daily, or hourly)
       description: |
-        ASP.NET WebMethod that returns monthly gas usage history as JSON.
+        ASP.NET WebMethod that returns gas usage history as JSON.
         Requires a valid CSRF token from the usage page.
 
-        Returns up to ~48 months of historical usage data in CCF (centum cubic feet).
+        Supports monthly (`Mode: "M"`), daily (`Mode: "D"`), and hourly
+        (`Mode: "D"` with `hourlyType: "H"`) granularity.
+
+        **Note:** Daily and hourly data require a smart meter (AMI). Most
+        residential PGW accounts only have monthly meter reads and will
+        return an empty result set for daily/hourly requests. Monthly mode
+        returns up to ~48 months of historical usage data in CCF (centum
+        cubic feet).
       security:
         - sessionAuth: []
       parameters:
@@ -219,19 +226,52 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/LoadGasUsageRequest"
-            example:
-              Type: "C"
-              Mode: "M"
-              strDate: ""
-              hourlyType: ""
-              seasonId: ""
-              weatherOverlay: "0"
-              usageyear: ""
-              MeterNumber: ""
-              DateFromDaily: ""
-              DateToDaily: ""
-              HistID: "0"
-              requiredDataType: 0
+            examples:
+              monthly:
+                summary: Monthly usage (default)
+                value:
+                  Type: "C"
+                  Mode: "M"
+                  strDate: ""
+                  hourlyType: ""
+                  seasonId: ""
+                  weatherOverlay: "0"
+                  usageyear: ""
+                  MeterNumber: ""
+                  DateFromDaily: ""
+                  DateToDaily: ""
+                  HistID: "0"
+                  requiredDataType: 0
+              daily:
+                summary: Daily usage for a date range
+                value:
+                  Type: "C"
+                  Mode: "D"
+                  strDate: ""
+                  hourlyType: ""
+                  seasonId: ""
+                  weatherOverlay: "0"
+                  usageyear: ""
+                  MeterNumber: ""
+                  DateFromDaily: "01/01/24"
+                  DateToDaily: "01/31/24"
+                  HistID: "0"
+                  requiredDataType: 0
+              hourly:
+                summary: Hourly usage for a single day
+                value:
+                  Type: "C"
+                  Mode: "D"
+                  strDate: "01/15/24"
+                  hourlyType: "H"
+                  seasonId: ""
+                  weatherOverlay: "0"
+                  usageyear: ""
+                  MeterNumber: ""
+                  DateFromDaily: ""
+                  DateToDaily: ""
+                  HistID: "0"
+                  requiredDataType: 0
       responses:
         "200":
           description: |
@@ -315,13 +355,27 @@ components:
         Mode:
           type: string
           enum: ["M", "D"]
-          description: Aggregation mode — `M` for monthly, `D` for daily
+          description: |
+            Aggregation mode:
+            - `M` — monthly totals (up to ~48 months of history)
+            - `D` — daily totals (use with `DateFromDaily`/`DateToDaily`) or
+              hourly breakdown (use with `strDate` and `hourlyType`)
         strDate:
           type: string
-          description: Date filter (empty for all data)
+          description: |
+            Date filter. Empty for monthly and daily modes.
+            For hourly mode, set to the target date in `MM/DD/YY` format.
         hourlyType:
           type: string
-          description: Hourly breakdown type (empty for monthly)
+          enum: ["", "H"]
+          description: |
+            Hourly breakdown type:
+            - Empty string — monthly or daily totals (no hourly breakdown)
+            - `H` — hourly breakdown for the date specified in `strDate`
+
+            The portal UI also references a "15 min" interval for commercial
+            accounts (`ML_WU_Navigation_HourlyCommercial`), which may use a
+            different value.
         seasonId:
           type: string
           description: Season filter (empty for all)
@@ -337,10 +391,16 @@ components:
           description: Specific meter number (empty for default)
         DateFromDaily:
           type: string
-          description: Daily range start (empty for monthly mode)
+          description: |
+            Daily range start in `MM/DD/YY` format.
+            Used with `Mode: "D"` and empty `hourlyType` to request daily totals.
+            Empty for monthly and hourly modes.
         DateToDaily:
           type: string
-          description: Daily range end (empty for monthly mode)
+          description: |
+            Daily range end in `MM/DD/YY` format.
+            Used with `Mode: "D"` and empty `hourlyType` to request daily totals.
+            Empty for monthly and hourly modes.
         HistID:
           type: string
           description: History ID (use `"0"`)

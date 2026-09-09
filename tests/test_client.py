@@ -166,6 +166,56 @@ class TestHourlyUsage:
         assert result == []
 
 
+class TestGetAll:
+    @pytest.mark.asyncio
+    async def test_returns_usage_and_billing(self):
+        billing_html = """
+        <input type="hidden" id="hdnTotalBillOFCurrentMonth" value="$120.50" />
+        <input type="hidden" id="hdnGasUsageOFCurrentMonth" value="85.0" />
+        <input type="hidden" id="hdnnumOfDaysCurrentMonth" value="32" />
+        <input type="hidden" id="hdnTotalBillOFPreviousMonth" value="$95.00" />
+        <input type="hidden" id="hdnGasUsageOFPreviousMonth" value="60.0" />
+        <input type="hidden" id="hdnnumOfDaysPreviousMonth" value="30" />
+        <input type="hidden" id="hdnTotalBillOFPreviousYearPreviousMonth" value="$110.00" />
+        <input type="hidden" id="hdnGasUsageOFPreviousYearPreviousMonth" value="80.0" />
+        <input type="hidden" id="hdnPrevAmount" value="$120.50" />
+        """
+        usage_payload = make_webmethod_response({
+            "objUsageGenerationResultSetTwo": [
+                {"Month": 1, "Year": 2024, "UsageValue": 85.0, "FromDate": "12/15/23", "ToDate": "01/16/24"},
+            ]
+        })
+        session = _setup_session([
+            make_response(),                           # GET login page
+            make_response(text=make_login_success()),  # POST validateLogin
+            make_response(),                           # GET Dashboard (billing)
+            make_response(text=billing_html),           # GET BillDashboard
+            make_response(),                           # GET Dashboard (usage)
+            make_response(text=CSRF_HTML),              # GET usage page
+            make_response(text=usage_payload),          # POST LoadGasUsage
+        ])
+
+        client = PGWApiClient("user", "pass")
+        usage, billing = await client.async_get_all(session)
+
+        assert len(usage) == 1
+        assert usage[0].ccf == 85.0
+        assert billing.current_bill == 120.50
+        assert billing.balance_due == 120.50
+
+
+class TestValidateCredentials:
+    @pytest.mark.asyncio
+    async def test_returns_true_on_success(self):
+        session = _setup_session([
+            make_response(),
+            make_response(text=make_login_success()),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        assert await client.async_validate_credentials(session) is True
+
+
 class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_csrf_error_raises_auth_error(self):
@@ -197,3 +247,142 @@ class TestErrorHandling:
         client = PGWApiClient("user", "wrong")
         with pytest.raises(PGWAuthError, match="Invalid username"):
             await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_login_exception_response(self):
+        login_err = make_webmethod_response(
+            {"dtException": [{"MessageInformation": "Account locked"}]}
+        )
+        session = _setup_session([
+            make_response(),
+            make_response(text=login_err),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWAuthError, match="Account locked"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_login_empty_response(self):
+        login_empty = make_webmethod_response([])
+        session = _setup_session([
+            make_response(),
+            make_response(text=login_empty),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWAuthError, match="unexpected response"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_login_non_200(self):
+        session = _setup_session([
+            make_response(),
+            make_response(status=500),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWAuthError, match="status 500"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_login_page_non_200(self):
+        session = _setup_session([
+            make_response(status=503),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWConnectionError, match="status 503"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_missing_csrf_token(self):
+        session = _setup_session([
+            make_response(),
+            make_response(text=make_login_success()),
+            make_response(),
+            make_response(text="<html>no token here</html>"),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWConnectionError, match="CSRF token"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_usage_page_non_200(self):
+        session = _setup_session([
+            make_response(),
+            make_response(text=make_login_success()),
+            make_response(),
+            make_response(status=500),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWConnectionError, match="status 500"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_load_usage_non_200(self):
+        session = _setup_session([
+            make_response(),
+            make_response(text=make_login_success()),
+            make_response(),
+            make_response(text=CSRF_HTML),
+            make_response(status=500),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWConnectionError, match="status 500"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_load_usage_malformed_json(self):
+        session = _setup_session([
+            make_response(),
+            make_response(text=make_login_success()),
+            make_response(),
+            make_response(text=CSRF_HTML),
+            make_response(text="not json"),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWConnectionError, match="Unexpected response"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_general_exception_in_usage(self):
+        error_payload = make_webmethod_response({
+            "dtException": [{"MessageInformation": "Something went wrong"}]
+        })
+        session = _setup_session([
+            make_response(),
+            make_response(text=make_login_success()),
+            make_response(),
+            make_response(text=CSRF_HTML),
+            make_response(text=error_payload),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        with pytest.raises(PGWConnectionError, match="Something went wrong"):
+            await client.async_get_usage(session)
+
+    @pytest.mark.asyncio
+    async def test_skips_monthly_entries_missing_fields(self):
+        usage_payload = make_webmethod_response({
+            "objUsageGenerationResultSetTwo": [
+                {"Month": 1, "Year": 2024, "UsageValue": 85.0, "FromDate": "12/15/23", "ToDate": "01/16/24"},
+                {"Month": None, "Year": 2024, "UsageValue": 50.0},
+                {"Month": 2, "Year": None, "UsageValue": 50.0},
+            ]
+        })
+        session = _setup_session([
+            make_response(),
+            make_response(text=make_login_success()),
+            make_response(),
+            make_response(text=CSRF_HTML),
+            make_response(text=usage_payload),
+        ])
+
+        client = PGWApiClient("user", "pass")
+        result = await client.async_get_usage(session)
+        assert len(result) == 1

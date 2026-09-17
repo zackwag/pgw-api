@@ -1,6 +1,5 @@
 """Tests for PGWApiClient using mocked HTTP responses."""
 
-import json
 from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -35,19 +34,35 @@ def _setup_session(responses):
 class TestMonthlyUsage:
     @pytest.mark.asyncio
     async def test_parses_monthly_entries(self):
-        usage_payload = make_webmethod_response({
-            "objUsageGenerationResultSetTwo": [
-                {"Month": 1, "Year": 2024, "UsageValue": 85.0, "FromDate": "12/15/23", "ToDate": "01/16/24"},
-                {"Month": 12, "Year": 2023, "UsageValue": 72.0, "FromDate": "11/14/23", "ToDate": "12/15/23"},
+        usage_payload = make_webmethod_response(
+            {
+                "objUsageGenerationResultSetTwo": [
+                    {
+                        "Month": 1,
+                        "Year": 2024,
+                        "UsageValue": 85.0,
+                        "FromDate": "12/15/23",
+                        "ToDate": "01/16/24",
+                    },
+                    {
+                        "Month": 12,
+                        "Year": 2023,
+                        "UsageValue": 72.0,
+                        "FromDate": "11/14/23",
+                        "ToDate": "12/15/23",
+                    },
+                ]
+            }
+        )
+        session = _setup_session(
+            [
+                make_response(),  # GET login page
+                make_response(text=make_login_success()),  # POST validateLogin
+                make_response(),  # GET Dashboard
+                make_response(text=CSRF_HTML),  # GET usage page
+                make_response(text=usage_payload),  # POST LoadGasUsage
             ]
-        })
-        session = _setup_session([
-            make_response(),                      # GET login page
-            make_response(text=make_login_success()),  # POST validateLogin
-            make_response(),                      # GET Dashboard
-            make_response(text=CSRF_HTML),         # GET usage page
-            make_response(text=usage_payload),     # POST LoadGasUsage
-        ])
+        )
 
         client = PGWApiClient("user", "pass")
         result = await client.async_get_usage(session)
@@ -60,13 +75,15 @@ class TestMonthlyUsage:
     @pytest.mark.asyncio
     async def test_empty_usage(self):
         usage_payload = make_webmethod_response({"objUsageGenerationResultSetTwo": []})
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text=usage_payload),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text=usage_payload),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         result = await client.async_get_usage(session)
@@ -76,25 +93,27 @@ class TestMonthlyUsage:
 class TestDailyUsage:
     @pytest.mark.asyncio
     async def test_parses_daily_entries(self):
-        usage_payload = make_webmethod_response({
-            "objUsageGenerationResultSetTwo": [
-                {"FromDate": "01/15/24", "UsageValue": 3.2},
-                {"FromDate": "01/14/24", "UsageValue": 4.1},
-                {"FromDate": "01/16/24", "UsageValue": 2.8},
+        usage_payload = make_webmethod_response(
+            {
+                "objUsageGenerationResultSetTwo": [
+                    {"FromDate": "01/15/24", "UsageValue": 3.2},
+                    {"FromDate": "01/14/24", "UsageValue": 4.1},
+                    {"FromDate": "01/16/24", "UsageValue": 2.8},
+                ]
+            }
+        )
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text=usage_payload),
             ]
-        })
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text=usage_payload),
-        ])
+        )
 
         client = PGWApiClient("user", "pass")
-        result = await client.async_get_daily_usage(
-            session, date(2024, 1, 14), date(2024, 1, 16)
-        )
+        result = await client.async_get_daily_usage(session, date(2024, 1, 14), date(2024, 1, 16))
 
         assert len(result) == 3
         assert result[0].date == date(2024, 1, 16)
@@ -103,44 +122,50 @@ class TestDailyUsage:
 
     @pytest.mark.asyncio
     async def test_skips_entries_missing_date(self):
-        usage_payload = make_webmethod_response({
-            "objUsageGenerationResultSetTwo": [
-                {"FromDate": "01/15/24", "UsageValue": 3.2},
-                {"FromDate": None, "UsageValue": 4.1},
+        usage_payload = make_webmethod_response(
+            {
+                "objUsageGenerationResultSetTwo": [
+                    {"FromDate": "01/15/24", "UsageValue": 3.2},
+                    {"FromDate": None, "UsageValue": 4.1},
+                ]
+            }
+        )
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text=usage_payload),
             ]
-        })
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text=usage_payload),
-        ])
+        )
 
         client = PGWApiClient("user", "pass")
-        result = await client.async_get_daily_usage(
-            session, date(2024, 1, 1), date(2024, 1, 31)
-        )
+        result = await client.async_get_daily_usage(session, date(2024, 1, 1), date(2024, 1, 31))
         assert len(result) == 1
 
 
 class TestHourlyUsage:
     @pytest.mark.asyncio
     async def test_parses_hourly_entries(self):
-        usage_payload = make_webmethod_response({
-            "objUsageGenerationResultSetTwo": [
-                {"FromDate": "01/15/2024 01:00:00 AM", "UsageValue": 0.3},
-                {"FromDate": "01/15/2024 02:00:00 AM", "UsageValue": 0.4},
-                {"FromDate": "01/15/2024 12:00:00 PM", "UsageValue": 0.1},
+        usage_payload = make_webmethod_response(
+            {
+                "objUsageGenerationResultSetTwo": [
+                    {"FromDate": "01/15/2024 01:00:00 AM", "UsageValue": 0.3},
+                    {"FromDate": "01/15/2024 02:00:00 AM", "UsageValue": 0.4},
+                    {"FromDate": "01/15/2024 12:00:00 PM", "UsageValue": 0.1},
+                ]
+            }
+        )
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text=usage_payload),
             ]
-        })
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text=usage_payload),
-        ])
+        )
 
         client = PGWApiClient("user", "pass")
         result = await client.async_get_hourly_usage(session, date(2024, 1, 15))
@@ -153,13 +178,15 @@ class TestHourlyUsage:
     @pytest.mark.asyncio
     async def test_empty_hourly(self):
         usage_payload = make_webmethod_response({"objUsageGenerationResultSetTwo": []})
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text=usage_payload),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text=usage_payload),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         result = await client.async_get_hourly_usage(session, date(2024, 1, 15))
@@ -180,20 +207,30 @@ class TestGetAll:
         <input type="hidden" id="hdnGasUsageOFPreviousYearPreviousMonth" value="80.0" />
         <input type="hidden" id="hdnPrevAmount" value="$120.50" />
         """
-        usage_payload = make_webmethod_response({
-            "objUsageGenerationResultSetTwo": [
-                {"Month": 1, "Year": 2024, "UsageValue": 85.0, "FromDate": "12/15/23", "ToDate": "01/16/24"},
+        usage_payload = make_webmethod_response(
+            {
+                "objUsageGenerationResultSetTwo": [
+                    {
+                        "Month": 1,
+                        "Year": 2024,
+                        "UsageValue": 85.0,
+                        "FromDate": "12/15/23",
+                        "ToDate": "01/16/24",
+                    },
+                ]
+            }
+        )
+        session = _setup_session(
+            [
+                make_response(),  # GET login page
+                make_response(text=make_login_success()),  # POST validateLogin
+                make_response(),  # GET Dashboard (billing)
+                make_response(text=billing_html),  # GET BillDashboard
+                make_response(),  # GET Dashboard (usage)
+                make_response(text=CSRF_HTML),  # GET usage page
+                make_response(text=usage_payload),  # POST LoadGasUsage
             ]
-        })
-        session = _setup_session([
-            make_response(),                           # GET login page
-            make_response(text=make_login_success()),  # POST validateLogin
-            make_response(),                           # GET Dashboard (billing)
-            make_response(text=billing_html),           # GET BillDashboard
-            make_response(),                           # GET Dashboard (usage)
-            make_response(text=CSRF_HTML),              # GET usage page
-            make_response(text=usage_payload),          # POST LoadGasUsage
-        ])
+        )
 
         client = PGWApiClient("user", "pass")
         usage, billing = await client.async_get_all(session)
@@ -207,10 +244,12 @@ class TestGetAll:
 class TestValidateCredentials:
     @pytest.mark.asyncio
     async def test_returns_true_on_success(self):
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         assert await client.async_validate_credentials(session) is True
@@ -219,16 +258,18 @@ class TestValidateCredentials:
 class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_csrf_error_raises_auth_error(self):
-        error_payload = make_webmethod_response({
-            "dtException": [{"MessageInformation": "Invalid CSRF Token"}]
-        })
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text=error_payload),
-        ])
+        error_payload = make_webmethod_response(
+            {"dtException": [{"MessageInformation": "Invalid CSRF Token"}]}
+        )
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text=error_payload),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWAuthError, match="CSRF"):
@@ -239,10 +280,12 @@ class TestErrorHandling:
         login_fail = make_webmethod_response(
             [{"STATUS": 0, "Message": "Invalid username or password"}]
         )
-        session = _setup_session([
-            make_response(),
-            make_response(text=login_fail),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=login_fail),
+            ]
+        )
 
         client = PGWApiClient("user", "wrong")
         with pytest.raises(PGWAuthError, match="Invalid username"):
@@ -253,10 +296,12 @@ class TestErrorHandling:
         login_err = make_webmethod_response(
             {"dtException": [{"MessageInformation": "Account locked"}]}
         )
-        session = _setup_session([
-            make_response(),
-            make_response(text=login_err),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=login_err),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWAuthError, match="Account locked"):
@@ -265,10 +310,12 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_login_empty_response(self):
         login_empty = make_webmethod_response([])
-        session = _setup_session([
-            make_response(),
-            make_response(text=login_empty),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=login_empty),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWAuthError, match="unexpected response"):
@@ -276,10 +323,12 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_login_non_200(self):
-        session = _setup_session([
-            make_response(),
-            make_response(status=500),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(status=500),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWAuthError, match="status 500"):
@@ -287,9 +336,11 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_login_page_non_200(self):
-        session = _setup_session([
-            make_response(status=503),
-        ])
+        session = _setup_session(
+            [
+                make_response(status=503),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWConnectionError, match="status 503"):
@@ -297,12 +348,14 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_missing_csrf_token(self):
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text="<html>no token here</html>"),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text="<html>no token here</html>"),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWConnectionError, match="CSRF token"):
@@ -310,12 +363,14 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_usage_page_non_200(self):
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(status=500),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(status=500),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWConnectionError, match="status 500"):
@@ -323,13 +378,15 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_load_usage_non_200(self):
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(status=500),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(status=500),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWConnectionError, match="status 500"):
@@ -337,13 +394,15 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_load_usage_malformed_json(self):
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text="not json"),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text="not json"),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWConnectionError, match="Unexpected response"):
@@ -351,16 +410,18 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_general_exception_in_usage(self):
-        error_payload = make_webmethod_response({
-            "dtException": [{"MessageInformation": "Something went wrong"}]
-        })
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text=error_payload),
-        ])
+        error_payload = make_webmethod_response(
+            {"dtException": [{"MessageInformation": "Something went wrong"}]}
+        )
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text=error_payload),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         with pytest.raises(PGWConnectionError, match="Something went wrong"):
@@ -368,20 +429,30 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_skips_monthly_entries_missing_fields(self):
-        usage_payload = make_webmethod_response({
-            "objUsageGenerationResultSetTwo": [
-                {"Month": 1, "Year": 2024, "UsageValue": 85.0, "FromDate": "12/15/23", "ToDate": "01/16/24"},
-                {"Month": None, "Year": 2024, "UsageValue": 50.0},
-                {"Month": 2, "Year": None, "UsageValue": 50.0},
+        usage_payload = make_webmethod_response(
+            {
+                "objUsageGenerationResultSetTwo": [
+                    {
+                        "Month": 1,
+                        "Year": 2024,
+                        "UsageValue": 85.0,
+                        "FromDate": "12/15/23",
+                        "ToDate": "01/16/24",
+                    },
+                    {"Month": None, "Year": 2024, "UsageValue": 50.0},
+                    {"Month": 2, "Year": None, "UsageValue": 50.0},
+                ]
+            }
+        )
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=CSRF_HTML),
+                make_response(text=usage_payload),
             ]
-        })
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=CSRF_HTML),
-            make_response(text=usage_payload),
-        ])
+        )
 
         client = PGWApiClient("user", "pass")
         result = await client.async_get_usage(session)

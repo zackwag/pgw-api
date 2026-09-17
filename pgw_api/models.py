@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 
-
 CCF_TO_CF = 100.0
 
 

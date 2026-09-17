@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date
+from datetime import date, datetime
 
 import aiohttp
 
@@ -33,18 +33,14 @@ class PGWApiClient:
         self._username = username
         self._password = password
 
-    async def async_get_usage(
-        self, session: aiohttp.ClientSession
-    ) -> list[GasUsage]:
+    async def async_get_usage(self, session: aiohttp.ClientSession) -> list[GasUsage]:
         """Authenticate and fetch gas usage data from PGW."""
         await self._establish_session(session)
         await self._authenticate(session)
         csrf_token = await self._get_csrf_token(session)
         return await self._load_gas_usage(session, csrf_token)
 
-    async def async_get_billing(
-        self, session: aiohttp.ClientSession
-    ) -> BillingSummary:
+    async def async_get_billing(self, session: aiohttp.ClientSession) -> BillingSummary:
         """Authenticate and fetch billing summary from PGW."""
         await self._establish_session(session)
         await self._authenticate(session)
@@ -84,9 +80,7 @@ class PGWApiClient:
         usage = await self._load_gas_usage(session, csrf_token)
         return usage, billing
 
-    async def async_validate_credentials(
-        self, session: aiohttp.ClientSession
-    ) -> bool:
+    async def async_validate_credentials(self, session: aiohttp.ClientSession) -> bool:
         """Validate credentials without fetching usage data."""
         await self._establish_session(session)
         await self._authenticate(session)
@@ -97,9 +91,7 @@ class PGWApiClient:
         try:
             async with session.get(LOGIN_URL, allow_redirects=True) as resp:
                 if resp.status != 200:
-                    raise PGWConnectionError(
-                        f"Login page returned status {resp.status}"
-                    )
+                    raise PGWConnectionError(f"Login page returned status {resp.status}")
                 await resp.text()
         except aiohttp.ClientError as err:
             raise PGWConnectionError(f"Failed to connect to PGW: {err}") from err
@@ -114,26 +106,18 @@ class PGWApiClient:
         headers = {**_HEADERS, "Referer": LOGIN_URL}
 
         try:
-            async with session.post(
-                VALIDATE_LOGIN_URL, json=payload, headers=headers
-            ) as resp:
+            async with session.post(VALIDATE_LOGIN_URL, json=payload, headers=headers) as resp:
                 if resp.status != 200:
-                    raise PGWAuthError(
-                        f"Login endpoint returned status {resp.status}"
-                    )
+                    raise PGWAuthError(f"Login endpoint returned status {resp.status}")
                 body = await resp.text()
         except aiohttp.ClientError as err:
-            raise PGWConnectionError(
-                f"Failed during authentication: {err}"
-            ) from err
+            raise PGWConnectionError(f"Failed during authentication: {err}") from err
 
         try:
             data = json.loads(body)
             inner = json.loads(data["d"])
         except (json.JSONDecodeError, KeyError) as err:
-            raise PGWConnectionError(
-                "Unexpected response from login endpoint"
-            ) from err
+            raise PGWConnectionError("Unexpected response from login endpoint") from err
 
         if isinstance(inner, dict) and "dtException" in inner:
             msg = inner["dtException"][0].get("MessageInformation", "Unknown error")
@@ -144,9 +128,7 @@ class PGWApiClient:
 
         first = inner[0]
         if isinstance(first, dict) and first.get("STATUS") == 0:
-            raise PGWAuthError(
-                first.get("Message", "Invalid username or password")
-            )
+            raise PGWAuthError(first.get("Message", "Invalid username or password"))
 
     async def _get_csrf_token(self, session: aiohttp.ClientSession) -> str:
         """Navigate to the usage page and extract the CSRF token."""
@@ -154,18 +136,12 @@ class PGWApiClient:
             async with session.get(DASHBOARD_URL, allow_redirects=True) as resp:
                 await resp.text()
 
-            async with session.get(
-                USAGE_URL, params={"type": "GU"}, allow_redirects=True
-            ) as resp:
+            async with session.get(USAGE_URL, params={"type": "GU"}, allow_redirects=True) as resp:
                 if resp.status != 200:
-                    raise PGWConnectionError(
-                        f"Usage page returned status {resp.status}"
-                    )
+                    raise PGWConnectionError(f"Usage page returned status {resp.status}")
                 html = await resp.text()
         except aiohttp.ClientError as err:
-            raise PGWConnectionError(
-                f"Failed to fetch usage page: {err}"
-            ) from err
+            raise PGWConnectionError(f"Failed to fetch usage page: {err}") from err
 
         match = re.search(r'id="hdnCSRFToken"[^>]*value="([^"]+)"', html)
         if not match:
@@ -173,31 +149,21 @@ class PGWApiClient:
 
         return match.group(1)
 
-    async def _load_billing(
-        self, session: aiohttp.ClientSession
-    ) -> BillingSummary:
+    async def _load_billing(self, session: aiohttp.ClientSession) -> BillingSummary:
         """Fetch billing summary from the BillDashboard page."""
         try:
             async with session.get(DASHBOARD_URL, allow_redirects=True) as resp:
                 await resp.text()
 
-            async with session.get(
-                BILL_DASHBOARD_URL, allow_redirects=True
-            ) as resp:
+            async with session.get(BILL_DASHBOARD_URL, allow_redirects=True) as resp:
                 if resp.status != 200:
-                    raise PGWConnectionError(
-                        f"BillDashboard returned status {resp.status}"
-                    )
+                    raise PGWConnectionError(f"BillDashboard returned status {resp.status}")
                 html = await resp.text()
         except aiohttp.ClientError as err:
-            raise PGWConnectionError(
-                f"Failed to fetch billing data: {err}"
-            ) from err
+            raise PGWConnectionError(f"Failed to fetch billing data: {err}") from err
 
         def field(name: str, default: str = "0") -> str:
-            match = re.search(
-                rf'id="{name}"[^>]*value="([^"]*)"', html
-            )
+            match = re.search(rf'id="{name}"[^>]*value="([^"]*)"', html)
             return match.group(1) if match else default
 
         current_bill = _parse_dollar(field("hdnTotalBillOFCurrentMonth"))
@@ -206,12 +172,8 @@ class PGWApiClient:
         previous_bill = _parse_dollar(field("hdnTotalBillOFPreviousMonth"))
         previous_usage = _parse_float(field("hdnGasUsageOFPreviousMonth"))
         previous_days = _parse_int(field("hdnnumOfDaysPreviousMonth"))
-        prev_year_bill = _parse_dollar(
-            field("hdnTotalBillOFPreviousYearPreviousMonth")
-        )
-        prev_year_usage = _parse_float(
-            field("hdnGasUsageOFPreviousYearPreviousMonth")
-        )
+        prev_year_bill = _parse_dollar(field("hdnTotalBillOFPreviousYearPreviousMonth"))
+        prev_year_usage = _parse_float(field("hdnGasUsageOFPreviousYearPreviousMonth"))
         balance = _parse_dollar(field("hdnPrevAmount"))
 
         # Parse period from billing comparison JSON
@@ -271,26 +233,18 @@ class PGWApiClient:
         }
 
         try:
-            async with session.post(
-                LOAD_GAS_URL, json=payload, headers=headers
-            ) as resp:
+            async with session.post(LOAD_GAS_URL, json=payload, headers=headers) as resp:
                 if resp.status != 200:
-                    raise PGWConnectionError(
-                        f"LoadGasUsage returned status {resp.status}"
-                    )
+                    raise PGWConnectionError(f"LoadGasUsage returned status {resp.status}")
                 body = await resp.text()
         except aiohttp.ClientError as err:
-            raise PGWConnectionError(
-                f"Failed to fetch gas usage: {err}"
-            ) from err
+            raise PGWConnectionError(f"Failed to fetch gas usage: {err}") from err
 
         try:
             data = json.loads(body)
             inner = json.loads(data["d"])
         except (json.JSONDecodeError, KeyError) as err:
-            raise PGWConnectionError(
-                "Unexpected response from LoadGasUsage"
-            ) from err
+            raise PGWConnectionError("Unexpected response from LoadGasUsage") from err
 
         if isinstance(inner, dict) and "dtException" in inner:
             msg = inner["dtException"][0].get("MessageInformation", "Unknown error")
@@ -356,26 +310,18 @@ class PGWApiClient:
         }
 
         try:
-            async with session.post(
-                LOAD_GAS_URL, json=payload, headers=headers
-            ) as resp:
+            async with session.post(LOAD_GAS_URL, json=payload, headers=headers) as resp:
                 if resp.status != 200:
-                    raise PGWConnectionError(
-                        f"LoadGasUsage (daily) returned status {resp.status}"
-                    )
+                    raise PGWConnectionError(f"LoadGasUsage (daily) returned status {resp.status}")
                 body = await resp.text()
         except aiohttp.ClientError as err:
-            raise PGWConnectionError(
-                f"Failed to fetch daily gas usage: {err}"
-            ) from err
+            raise PGWConnectionError(f"Failed to fetch daily gas usage: {err}") from err
 
         try:
             data = json.loads(body)
             inner = json.loads(data["d"])
         except (json.JSONDecodeError, KeyError) as err:
-            raise PGWConnectionError(
-                "Unexpected response from LoadGasUsage (daily)"
-            ) from err
+            raise PGWConnectionError("Unexpected response from LoadGasUsage (daily)") from err
 
         if isinstance(inner, dict) and "dtException" in inner:
             msg = inner["dtException"][0].get("MessageInformation", "Unknown error")
@@ -406,7 +352,6 @@ class PGWApiClient:
         usage_date: date,
     ) -> list[HourlyGasUsage]:
         """Call LoadGasUsage in daily mode with hourlyType to get hourly data."""
-        from datetime import datetime
 
         payload = {
             "Type": "C",
@@ -429,26 +374,18 @@ class PGWApiClient:
         }
 
         try:
-            async with session.post(
-                LOAD_GAS_URL, json=payload, headers=headers
-            ) as resp:
+            async with session.post(LOAD_GAS_URL, json=payload, headers=headers) as resp:
                 if resp.status != 200:
-                    raise PGWConnectionError(
-                        f"LoadGasUsage (hourly) returned status {resp.status}"
-                    )
+                    raise PGWConnectionError(f"LoadGasUsage (hourly) returned status {resp.status}")
                 body = await resp.text()
         except aiohttp.ClientError as err:
-            raise PGWConnectionError(
-                f"Failed to fetch hourly gas usage: {err}"
-            ) from err
+            raise PGWConnectionError(f"Failed to fetch hourly gas usage: {err}") from err
 
         try:
             data = json.loads(body)
             inner = json.loads(data["d"])
         except (json.JSONDecodeError, KeyError) as err:
-            raise PGWConnectionError(
-                "Unexpected response from LoadGasUsage (hourly)"
-            ) from err
+            raise PGWConnectionError("Unexpected response from LoadGasUsage (hourly)") from err
 
         if isinstance(inner, dict) and "dtException" in inner:
             msg = inner["dtException"][0].get("MessageInformation", "Unknown error")
@@ -474,20 +411,24 @@ class PGWApiClient:
 
 
 def _parse_datetime(dt_str: str | None) -> datetime | None:
-    """Parse a datetime string from the portal (various formats)."""
+    """Parse a datetime string from the portal (various formats).
+
+    Returns a naive datetime deliberately: the portal reports these in its
+    own local time with no timezone offset in the source string, so there is
+    no correct tzinfo to attach without guessing.
+    """
     if not dt_str:
         return None
-    from datetime import datetime
 
     for fmt in ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %H:%M:%S", "%m/%d/%y %I:%M:%S %p", "%m/%d/%y"):
         try:
-            return datetime.strptime(dt_str, fmt)
+            return datetime.strptime(dt_str, fmt)  # noqa: DTZ007 - naive by design, see docstring
         except ValueError:
             continue
 
     parsed_date = _parse_date(dt_str)
     if parsed_date:
-        return datetime(parsed_date.year, parsed_date.month, parsed_date.day)
+        return datetime(parsed_date.year, parsed_date.month, parsed_date.day)  # noqa: DTZ001 - naive by design, see docstring
     return None
 
 

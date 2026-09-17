@@ -22,9 +22,7 @@ def make_webmethod_response(payload):
 
 def make_login_success():
     """Return a successful login response body."""
-    return make_webmethod_response(
-        [{"AccountNumber": "1234567890", "STATUS": 1}]
-    )
+    return make_webmethod_response([{"AccountNumber": "1234567890", "STATUS": 1}])
 
 
 CSRF_HTML = '<input type="hidden" id="hdnCSRFToken" value="test-csrf-token" />'
@@ -37,8 +35,6 @@ def mock_session():
 
     responses = []
     call_count = {"n": 0}
-
-    ctx = MagicMock()
 
     def context_manager(resp):
         cm = MagicMock()

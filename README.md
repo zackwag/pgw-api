@@ -15,6 +15,7 @@ import asyncio
 import aiohttp
 from pgw_api import PGWApiClient
 
+
 async def main():
     client = PGWApiClient("your-email@example.com", "your-password")
 
@@ -25,6 +26,7 @@ async def main():
             print(f"{entry.month:%B %Y}: {entry.ccf} CCF ({entry.cf} ft³)")
             if entry.period_start and entry.period_end:
                 print(f"  Period: {entry.period_start} to {entry.period_end}")
+
 
 asyncio.run(main())
 ```

@@ -7,8 +7,7 @@ import pytest
 
 from pgw_api.client import PGWApiClient
 from pgw_api.models import BillingSummary
-from tests.conftest import make_response, make_login_success, make_webmethod_response
-
+from tests.conftest import make_login_success, make_response
 
 BILLING_HTML = """
 <input type="hidden" id="hdnTotalBillOFCurrentMonth" value="$120.50" />
@@ -47,12 +46,14 @@ def _setup_session(responses):
 class TestBillingParsing:
     @pytest.mark.asyncio
     async def test_parses_all_fields(self):
-        session = _setup_session([
-            make_response(),                           # GET login page
-            make_response(text=make_login_success()),  # POST validateLogin
-            make_response(),                           # GET Dashboard
-            make_response(text=BILLING_HTML),           # GET BillDashboard
-        ])
+        session = _setup_session(
+            [
+                make_response(),  # GET login page
+                make_response(text=make_login_success()),  # POST validateLogin
+                make_response(),  # GET Dashboard
+                make_response(text=BILLING_HTML),  # GET BillDashboard
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         billing = await client.async_get_billing(session)
@@ -72,12 +73,14 @@ class TestBillingParsing:
     @pytest.mark.asyncio
     async def test_missing_fields_default_to_zero(self):
         html = "<html><body>no hidden fields here</body></html>"
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=html),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=html),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         billing = await client.async_get_billing(session)
@@ -91,12 +94,14 @@ class TestBillingParsing:
     @pytest.mark.asyncio
     async def test_malformed_period_json(self):
         html = '<input type="hidden" id="hdnbillComparisionOFCurrentMonth" value="not json" />'
-        session = _setup_session([
-            make_response(),
-            make_response(text=make_login_success()),
-            make_response(),
-            make_response(text=html),
-        ])
+        session = _setup_session(
+            [
+                make_response(),
+                make_response(text=make_login_success()),
+                make_response(),
+                make_response(text=html),
+            ]
+        )
 
         client = PGWApiClient("user", "pass")
         billing = await client.async_get_billing(session)
@@ -107,32 +112,56 @@ class TestBillingParsing:
 class TestBillingSummaryModel:
     def test_current_usage_cf(self):
         b = BillingSummary(
-            current_bill=100, current_usage_ccf=50, current_period_days=30,
-            previous_bill=80, previous_usage_ccf=40, previous_period_days=30,
-            previous_year_bill=90, previous_year_usage_ccf=45, balance_due=100,
+            current_bill=100,
+            current_usage_ccf=50,
+            current_period_days=30,
+            previous_bill=80,
+            previous_usage_ccf=40,
+            previous_period_days=30,
+            previous_year_bill=90,
+            previous_year_usage_ccf=45,
+            balance_due=100,
         )
         assert b.current_usage_cf == 5000.0
 
     def test_previous_usage_cf(self):
         b = BillingSummary(
-            current_bill=100, current_usage_ccf=50, current_period_days=30,
-            previous_bill=80, previous_usage_ccf=40, previous_period_days=30,
-            previous_year_bill=90, previous_year_usage_ccf=45, balance_due=100,
+            current_bill=100,
+            current_usage_ccf=50,
+            current_period_days=30,
+            previous_bill=80,
+            previous_usage_ccf=40,
+            previous_period_days=30,
+            previous_year_bill=90,
+            previous_year_usage_ccf=45,
+            balance_due=100,
         )
         assert b.previous_usage_cf == 4000.0
 
     def test_current_rate(self):
         b = BillingSummary(
-            current_bill=200, current_usage_ccf=100, current_period_days=30,
-            previous_bill=80, previous_usage_ccf=40, previous_period_days=30,
-            previous_year_bill=90, previous_year_usage_ccf=45, balance_due=200,
+            current_bill=200,
+            current_usage_ccf=100,
+            current_period_days=30,
+            previous_bill=80,
+            previous_usage_ccf=40,
+            previous_period_days=30,
+            previous_year_bill=90,
+            previous_year_usage_ccf=45,
+            balance_due=200,
         )
         assert b.current_rate == 2.0
 
     def test_current_rate_zero_usage(self):
         b = BillingSummary(
-            current_bill=0, current_usage_ccf=0, current_period_days=0,
-            previous_bill=0, previous_usage_ccf=0, previous_period_days=0,
-            previous_year_bill=0, previous_year_usage_ccf=0, balance_due=0,
+            current_bill=0,
+            current_usage_ccf=0,
+            current_period_days=0,
+            previous_bill=0,
+            previous_usage_ccf=0,
+            previous_period_days=0,
+            previous_year_bill=0,
+            previous_year_usage_ccf=0,
+            balance_due=0,
         )
         assert b.current_rate is None

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Integration test — run against the real PGW portal.
 
 Usage:
@@ -18,12 +17,12 @@ from datetime import date, timedelta
 import aiohttp
 
 from pgw_api.client import (
+    _HEADERS,
     DASHBOARD_URL,
     LOAD_GAS_URL,
     LOGIN_URL,
     USAGE_URL,
     VALIDATE_LOGIN_URL,
-    _HEADERS,
 )
 
 
@@ -65,59 +64,101 @@ async def main():
         print("MONTHLY USAGE (Mode=M)")
         print("=" * 60)
         csrf = await _get_csrf(session)
-        await _fire(session, csrf, {
-            "Type": "C", "Mode": "M", "strDate": "", "hourlyType": "",
-            "seasonId": "", "weatherOverlay": "0", "usageyear": "",
-            "MeterNumber": "", "DateFromDaily": "", "DateToDaily": "",
-            "HistID": "0", "requiredDataType": 0,
-        })
+        await _fire(
+            session,
+            csrf,
+            {
+                "Type": "C",
+                "Mode": "M",
+                "strDate": "",
+                "hourlyType": "",
+                "seasonId": "",
+                "weatherOverlay": "0",
+                "usageyear": "",
+                "MeterNumber": "",
+                "DateFromDaily": "",
+                "DateToDaily": "",
+                "HistID": "0",
+                "requiredDataType": 0,
+            },
+        )
 
         # --- Daily ---
-        end = date.today()
+        end = date.today()  # noqa: DTZ011 - manual diagnostic script, local date is what the operator running it expects
         start = end - timedelta(days=30)
         print()
         print("=" * 60)
         print(f"DAILY USAGE (Mode=D, {start} to {end})")
         print("=" * 60)
         csrf = await _get_csrf(session)
-        await _fire(session, csrf, {
-            "Type": "C", "Mode": "D", "strDate": "", "hourlyType": "",
-            "seasonId": "", "weatherOverlay": "0", "usageyear": "",
-            "MeterNumber": "",
-            "DateFromDaily": start.strftime("%m/%d/%Y"),
-            "DateToDaily": end.strftime("%m/%d/%Y"),
-            "HistID": "0", "requiredDataType": 0,
-        })
+        await _fire(
+            session,
+            csrf,
+            {
+                "Type": "C",
+                "Mode": "D",
+                "strDate": "",
+                "hourlyType": "",
+                "seasonId": "",
+                "weatherOverlay": "0",
+                "usageyear": "",
+                "MeterNumber": "",
+                "DateFromDaily": start.strftime("%m/%d/%Y"),
+                "DateToDaily": end.strftime("%m/%d/%Y"),
+                "HistID": "0",
+                "requiredDataType": 0,
+            },
+        )
 
         # --- Daily variation: short year format (MM/DD/YY) ---
         print()
         print("=" * 60)
-        print(f"DAILY v2 (DateFrom/To in MM/DD/YY)")
+        print("DAILY v2 (DateFrom/To in MM/DD/YY)")
         print("=" * 60)
         csrf = await _get_csrf(session)
-        await _fire(session, csrf, {
-            "Type": "C", "Mode": "D", "strDate": "", "hourlyType": "",
-            "seasonId": "", "weatherOverlay": "0", "usageyear": "",
-            "MeterNumber": "",
-            "DateFromDaily": start.strftime("%m/%d/%y"),
-            "DateToDaily": end.strftime("%m/%d/%y"),
-            "HistID": "0", "requiredDataType": 0,
-        })
+        await _fire(
+            session,
+            csrf,
+            {
+                "Type": "C",
+                "Mode": "D",
+                "strDate": "",
+                "hourlyType": "",
+                "seasonId": "",
+                "weatherOverlay": "0",
+                "usageyear": "",
+                "MeterNumber": "",
+                "DateFromDaily": start.strftime("%m/%d/%y"),
+                "DateToDaily": end.strftime("%m/%d/%y"),
+                "HistID": "0",
+                "requiredDataType": 0,
+            },
+        )
 
         # --- Daily variation: use strDate instead ---
         print()
         print("=" * 60)
-        print(f"DAILY v3 (strDate instead of DateFrom/To)")
+        print("DAILY v3 (strDate instead of DateFrom/To)")
         print("=" * 60)
         csrf = await _get_csrf(session)
-        await _fire(session, csrf, {
-            "Type": "C", "Mode": "D",
-            "strDate": start.strftime("%m/%d/%Y"),
-            "hourlyType": "",
-            "seasonId": "", "weatherOverlay": "0", "usageyear": "",
-            "MeterNumber": "", "DateFromDaily": "", "DateToDaily": "",
-            "HistID": "0", "requiredDataType": 0,
-        })
+        await _fire(
+            session,
+            csrf,
+            {
+                "Type": "C",
+                "Mode": "D",
+                "strDate": start.strftime("%m/%d/%Y"),
+                "hourlyType": "",
+                "seasonId": "",
+                "weatherOverlay": "0",
+                "usageyear": "",
+                "MeterNumber": "",
+                "DateFromDaily": "",
+                "DateToDaily": "",
+                "HistID": "0",
+                "requiredDataType": 0,
+            },
+        )
 
         # --- Daily variation: with usageyear ---
         print()
@@ -125,15 +166,24 @@ async def main():
         print(f"DAILY v4 (with usageyear={end.year})")
         print("=" * 60)
         csrf = await _get_csrf(session)
-        await _fire(session, csrf, {
-            "Type": "C", "Mode": "D", "strDate": "", "hourlyType": "",
-            "seasonId": "", "weatherOverlay": "0",
-            "usageyear": str(end.year),
-            "MeterNumber": "",
-            "DateFromDaily": start.strftime("%m/%d/%Y"),
-            "DateToDaily": end.strftime("%m/%d/%Y"),
-            "HistID": "0", "requiredDataType": 0,
-        })
+        await _fire(
+            session,
+            csrf,
+            {
+                "Type": "C",
+                "Mode": "D",
+                "strDate": "",
+                "hourlyType": "",
+                "seasonId": "",
+                "weatherOverlay": "0",
+                "usageyear": str(end.year),
+                "MeterNumber": "",
+                "DateFromDaily": start.strftime("%m/%d/%Y"),
+                "DateToDaily": end.strftime("%m/%d/%Y"),
+                "HistID": "0",
+                "requiredDataType": 0,
+            },
+        )
 
         # --- Hourly (hourlyType=H) ---
         yesterday = end - timedelta(days=1)
@@ -142,14 +192,24 @@ async def main():
         print(f"HOURLY (Mode=D, hourlyType=H, {yesterday})")
         print("=" * 60)
         csrf = await _get_csrf(session)
-        await _fire(session, csrf, {
-            "Type": "C", "Mode": "D",
-            "strDate": yesterday.strftime("%m/%d/%Y"),
-            "hourlyType": "H",
-            "seasonId": "", "weatherOverlay": "0", "usageyear": "",
-            "MeterNumber": "", "DateFromDaily": "", "DateToDaily": "",
-            "HistID": "0", "requiredDataType": 0,
-        })
+        await _fire(
+            session,
+            csrf,
+            {
+                "Type": "C",
+                "Mode": "D",
+                "strDate": yesterday.strftime("%m/%d/%Y"),
+                "hourlyType": "H",
+                "seasonId": "",
+                "weatherOverlay": "0",
+                "usageyear": "",
+                "MeterNumber": "",
+                "DateFromDaily": "",
+                "DateToDaily": "",
+                "HistID": "0",
+                "requiredDataType": 0,
+            },
+        )
 
 
 async def _get_csrf(session):
@@ -178,7 +238,7 @@ async def _fire(session, csrf, payload):
     try:
         data = json.loads(body)
         inner = json.loads(data["d"])
-    except Exception:
+    except Exception:  # noqa: BLE001 - diagnostic script, show the raw response on any parse failure rather than crash
         print(f"  Raw (first 500): {body[:500]}")
         return
 
@@ -190,7 +250,7 @@ async def _fire(session, csrf, payload):
         if len(entries) > 1:
             print(f"  Second: {json.dumps(entries[1], indent=4)}")
     else:
-        print(f"  No usage entries. Full response:")
+        print("  No usage entries. Full response:")
         print(f"  {json.dumps(inner, indent=2)}")
 
 

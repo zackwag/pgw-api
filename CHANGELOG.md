@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/zackwag/pgw-api/compare/v1.3.1...v1.4.0) (2026-09-17)
+
+
+### Features
+
+* **ci:** add ruff lint + format check ([#11](https://github.com/zackwag/pgw-api/issues/11)) ([4f42142](https://github.com/zackwag/pgw-api/commit/4f421424d86e807b03260fd654420c61d2f08aef))
+
 ## [1.3.1](https://github.com/zackwag/pgw-api/compare/v1.3.0...v1.3.1) (2026-09-17)
 
 

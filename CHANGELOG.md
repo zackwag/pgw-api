@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/zackwag/pgw-api/compare/v1.3.0...v1.3.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **ci:** use RELEASE_PLEASE_TOKEN so releases trigger downstream workflows ([#9](https://github.com/zackwag/pgw-api/issues/9)) ([b6e21df](https://github.com/zackwag/pgw-api/commit/b6e21df0a23e7a5abde14e47ff3bdc649ee34302))
+
 ## [1.3.0](https://github.com/zackwag/pgw-api/compare/v1.2.1...v1.3.0) (2026-09-17)
 
 

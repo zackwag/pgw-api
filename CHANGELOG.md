@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.1](https://github.com/zackwag/pgw-api/compare/v1.4.0...v1.4.1) (2026-10-10)
+
+
+### Miscellaneous Chores
+
+* **deps:** bump actions/checkout from 4 to 7 ([#14](https://github.com/zackwag/pgw-api/issues/14)) ([ec056c4](https://github.com/zackwag/pgw-api/commit/ec056c4b6a6537486eec1552c924b7c5a2a8c729))
+* **deps:** bump amannn/action-semantic-pull-request from 5 to 6 ([#13](https://github.com/zackwag/pgw-api/issues/13)) ([f5d2868](https://github.com/zackwag/pgw-api/commit/f5d286875df2b39b74b442e1b0568a23c86871f1))
+* **deps:** bump googleapis/release-please-action from 4 to 5 ([#15](https://github.com/zackwag/pgw-api/issues/15)) ([5bb16a5](https://github.com/zackwag/pgw-api/commit/5bb16a5f2e3bbc549eb771e9c13fd185d5897393))
+
 ## [1.4.0](https://github.com/zackwag/pgw-api/compare/v1.3.1...v1.4.0) (2026-09-17)
 
 

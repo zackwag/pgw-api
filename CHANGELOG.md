@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/zackwag/pgw-api/compare/v1.4.1...v1.4.2) (2026-11-11)
+
+
+### Miscellaneous Chores
+
+* fix dependabot commit-message prefixes for conventional commits ([#19](https://github.com/zackwag/pgw-api/issues/19)) ([108ffd7](https://github.com/zackwag/pgw-api/commit/108ffd7c4b6857c56802c31a94371544acddbdcc))
+
 ## [1.4.1](https://github.com/zackwag/pgw-api/compare/v1.4.0...v1.4.1) (2026-10-10)
 
 
